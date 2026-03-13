@@ -3,6 +3,12 @@ public class Task {
     private boolean completed;
     private int priority; // 1 = !, 2 = !!, 3 = !!!
 
+    // No-arg constructor for JSON deserialization
+    public Task() {
+        this.completed = false;
+        this.priority = 1;
+    }
+
     public Task(String name, int priority) {
         this.name = name;
         this.priority = Math.max(1, Math.min(3, priority));

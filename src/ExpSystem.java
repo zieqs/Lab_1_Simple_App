@@ -51,6 +51,13 @@ public class ExpSystem {
     public int getExpPerTask() { return expPerTask; }
     public void setExpPerTask(int expPerTask) { this.expPerTask = Math.max(1, expPerTask); }
 
+    public void loadState(int exp, int level, int expToNextLevel, int expPerTask) {
+        this.exp = Math.max(0, exp);
+        this.level = Math.max(1, level);
+        this.expToNextLevel = Math.max(1, expToNextLevel);
+        this.expPerTask = Math.max(1, expPerTask);
+    }
+
     public String getRandomQuote() {
         return QUOTES[new Random().nextInt(QUOTES.length)];
     }
