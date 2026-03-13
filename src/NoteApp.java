@@ -64,7 +64,8 @@ public class NoteApp extends Application {
         topBar.setStyle("-fx-background-color: #2c3e50;");
 
         Button toggleSidebarBtn = new Button("\u2630");
-        toggleSidebarBtn.setStyle("-fx-background-color: #3d566e; -fx-text-fill: white; -fx-font-size: 16; -fx-background-radius: 5; -fx-cursor: hand; -fx-padding: 5 10;");
+        toggleSidebarBtn.setStyle(
+                "-fx-background-color: #3d566e; -fx-text-fill: white; -fx-font-size: 16; -fx-background-radius: 5; -fx-cursor: hand; -fx-padding: 5 10;");
         toggleSidebarBtn.setOnAction(e -> {
             sidebarVisible = !sidebarVisible;
             if (sidebarVisible) {
@@ -91,11 +92,7 @@ public class NoteApp extends Application {
         expBar.setPrefWidth(150);
         expBar.setStyle("-fx-accent: #f1c40f;");
 
-        Button editExpBtn = new Button("Edit EXP");
-        editExpBtn.setStyle("-fx-background-color: #f39c12; -fx-text-fill: white; -fx-font-size: 11;");
-        editExpBtn.setOnAction(e -> showEditExpDialog());
-
-        topBar.getChildren().addAll(toggleSidebarBtn, titleLabel, spacer, levelLabel, expBar, expLabel, editExpBtn);
+        topBar.getChildren().addAll(toggleSidebarBtn, titleLabel, spacer, levelLabel, expBar, expLabel);
         return topBar;
     }
 
@@ -125,7 +122,8 @@ public class NoteApp extends Application {
         HBox.setHgrow(spacer, Priority.ALWAYS);
 
         Button addCategoryBtn = new Button("+");
-        addCategoryBtn.setStyle("-fx-background-color: #27ae60; -fx-text-fill: white; -fx-font-weight: bold; -fx-font-size: 14; -fx-background-radius: 15; -fx-min-width: 30; -fx-min-height: 30;");
+        addCategoryBtn.setStyle(
+                "-fx-background-color: #27ae60; -fx-text-fill: white; -fx-font-weight: bold; -fx-font-size: 14; -fx-background-radius: 15; -fx-min-width: 30; -fx-min-height: 30;");
         addCategoryBtn.setOnAction(e -> showCreateCategoryDialog());
 
         filesHeader.getChildren().addAll(filesLabel, spacer, addCategoryBtn);
@@ -139,29 +137,7 @@ public class NoteApp extends Application {
         scrollPane.setStyle("-fx-background: #34495e; -fx-background-color: #34495e;");
         VBox.setVgrow(scrollPane, Priority.ALWAYS);
 
-        // Bottom buttons
-        HBox bottomBar = new HBox(10);
-        bottomBar.setAlignment(Pos.CENTER);
-        bottomBar.setPadding(new Insets(10));
-
-        Button menuBtn = new Button("...");
-        menuBtn.setStyle("-fx-background-color: #7f8c8d; -fx-text-fill: white; -fx-font-size: 14; -fx-background-radius: 20; -fx-min-width: 40; -fx-min-height: 40;");
-
-        ContextMenu mainMenu = new ContextMenu();
-        MenuItem aboutItem = new MenuItem("About");
-        aboutItem.setOnAction(e -> {
-            Alert alert = new Alert(Alert.AlertType.INFORMATION);
-            alert.setTitle("About");
-            alert.setHeaderText("Note Taking App");
-            alert.setContentText("A simple note-taking app with EXP system.\nLevel: " + expSystem.getLevel() + "\nTotal tasks across all categories: " + categories.stream().mapToInt(c -> c.getTasks().size()).sum());
-            alert.showAndWait();
-        });
-        mainMenu.getItems().add(aboutItem);
-        menuBtn.setOnAction(e -> mainMenu.show(menuBtn, javafx.geometry.Side.TOP, 0, 0));
-
-        bottomBar.getChildren().addAll(menuBtn);
-
-        sidebar.getChildren().addAll(homeLabel, filesHeader, scrollPane, bottomBar);
+        sidebar.getChildren().addAll(homeLabel, filesHeader, scrollPane);
         refreshCategoryList();
         return sidebar;
     }
@@ -180,7 +156,53 @@ public class NoteApp extends Application {
         Label headerLabel = new Label("Tasks");
         headerLabel.setFont(Font.font("System", FontWeight.BOLD, 18));
 
-        header.getChildren().add(headerLabel);
+        Region headerSpacer = new Region();
+        HBox.setHgrow(headerSpacer, Priority.ALWAYS);
+
+        Button menuBtn = new Button("...");
+        menuBtn.setStyle(
+                "-fx-background-color: #7f8c8d; -fx-text-fill: white; -fx-font-size: 14; -fx-background-radius: 20; -fx-min-width: 40; -fx-min-height: 40;");
+
+        ContextMenu mainMenu = new ContextMenu();
+
+        MenuItem renameCategoryItem = new MenuItem("Rename Category");
+        renameCategoryItem.setOnAction(e -> {
+            if (selectedCategory != null) {
+                showRenameCategoryDialog(selectedCategory);
+            } else {
+                Alert alert = new Alert(Alert.AlertType.WARNING);
+                alert.setTitle("No Category Selected");
+                alert.setContentText("Please select a category first.");
+                alert.showAndWait();
+            }
+        });
+
+        MenuItem deleteCategoryItem = new MenuItem("Delete Category");
+        deleteCategoryItem.setOnAction(e -> {
+            if (selectedCategory != null) {
+                Alert confirm = new Alert(Alert.AlertType.CONFIRMATION);
+                confirm.setTitle("Delete Category");
+                confirm.setHeaderText("Delete \"" + selectedCategory.getName() + "\"?");
+                confirm.setContentText("All tasks in this category will be lost.");
+                Optional<ButtonType> result = confirm.showAndWait();
+                if (result.isPresent() && result.get() == ButtonType.OK) {
+                    categories.remove(selectedCategory);
+                    selectedCategory = categories.isEmpty() ? null : categories.get(0);
+                    refreshCategoryList();
+                    refreshTaskList();
+                }
+            } else {
+                Alert alert = new Alert(Alert.AlertType.WARNING);
+                alert.setTitle("No Category Selected");
+                alert.setContentText("Please select a category first.");
+                alert.showAndWait();
+            }
+        });
+
+        mainMenu.getItems().addAll(renameCategoryItem, deleteCategoryItem);
+        menuBtn.setOnAction(e -> mainMenu.show(menuBtn, javafx.geometry.Side.TOP, 0, 0));
+
+        header.getChildren().addAll(headerLabel, headerSpacer, menuBtn);
 
         // Task list
         taskListContainer = new VBox(5);
@@ -193,14 +215,18 @@ public class NoteApp extends Application {
 
         // Bottom add task bar
         HBox bottomBar = new HBox(10);
-        bottomBar.setAlignment(Pos.CENTER);
+        bottomBar.setAlignment(Pos.CENTER_RIGHT);
         bottomBar.setPadding(new Insets(10, 20, 15, 20));
 
+        Region spacer = new Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+
         Button addTaskBtn = new Button("+");
-        addTaskBtn.setStyle("-fx-background-color: #27ae60; -fx-text-fill: white; -fx-font-weight: bold; -fx-font-size: 18; -fx-background-radius: 25; -fx-min-width: 50; -fx-min-height: 50;");
+        addTaskBtn.setStyle(
+                "-fx-background-color: #27ae60; -fx-text-fill: white; -fx-font-weight: bold; -fx-font-size: 18; -fx-background-radius: 25; -fx-min-width: 50; -fx-min-height: 50;");
         addTaskBtn.setOnAction(e -> showCreateTaskDialog());
 
-        bottomBar.getChildren().add(addTaskBtn);
+        bottomBar.getChildren().addAll(spacer, addTaskBtn);
 
         center.getChildren().addAll(header, scrollPane, bottomBar);
         refreshTaskList();
@@ -287,7 +313,8 @@ public class NoteApp extends Application {
             HBox row = new HBox(10);
             row.setAlignment(Pos.CENTER_LEFT);
             row.setPadding(new Insets(10, 15, 10, 15));
-            row.setStyle("-fx-background-color: white; -fx-background-radius: 8; -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.08), 4, 0, 0, 1);");
+            row.setStyle(
+                    "-fx-background-color: white; -fx-background-radius: 8; -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.08), 4, 0, 0, 1);");
 
             // Checkbox
             CheckBox checkBox = new CheckBox();
@@ -323,12 +350,14 @@ public class NoteApp extends Application {
 
             // Edit button
             Button editBtn = new Button("edit");
-            editBtn.setStyle("-fx-background-color: transparent; -fx-text-fill: #3498db; -fx-border-color: #3498db; -fx-border-radius: 3; -fx-font-size: 11; -fx-cursor: hand;");
+            editBtn.setStyle(
+                    "-fx-background-color: transparent; -fx-text-fill: #3498db; -fx-border-color: #3498db; -fx-border-radius: 3; -fx-font-size: 11; -fx-cursor: hand;");
             editBtn.setOnAction(e -> showEditTaskDialog(task));
 
             // Delete button
             Button deleteBtn = new Button("delete");
-            deleteBtn.setStyle("-fx-background-color: transparent; -fx-text-fill: #e74c3c; -fx-border-color: #e74c3c; -fx-border-radius: 3; -fx-font-size: 11; -fx-cursor: hand;");
+            deleteBtn.setStyle(
+                    "-fx-background-color: transparent; -fx-text-fill: #e74c3c; -fx-border-color: #e74c3c; -fx-border-radius: 3; -fx-font-size: 11; -fx-cursor: hand;");
             deleteBtn.setOnAction(e -> {
                 selectedCategory.removeTask(task);
                 refreshTaskList();
@@ -462,25 +491,6 @@ public class NoteApp extends Application {
             task.setPriority(priorityBox.getSelectionModel().getSelectedIndex() + 1);
             refreshTaskList();
         }
-    }
-
-    private void showEditExpDialog() {
-        TextInputDialog dialog = new TextInputDialog(String.valueOf(expSystem.getExpPerTask()));
-        dialog.setTitle("Edit EXP Settings");
-        dialog.setHeaderText("EXP Per Completed Task");
-        dialog.setContentText("EXP amount:");
-        Optional<String> result = dialog.showAndWait();
-        result.ifPresent(value -> {
-            try {
-                int amount = Integer.parseInt(value.trim());
-                expSystem.setExpPerTask(amount);
-            } catch (NumberFormatException e) {
-                Alert alert = new Alert(Alert.AlertType.ERROR);
-                alert.setTitle("Invalid Input");
-                alert.setContentText("Please enter a valid number.");
-                alert.showAndWait();
-            }
-        });
     }
 
     private void showLevelUpDialog() {
