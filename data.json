@@ -1,0 +1,13 @@
+{
+  "categories": [
+    {
+      "name": "Daily Task",
+      "tasks": []
+    }
+  ],
+  "selectedCategoryName": "Daily Task",
+  "exp": 0,
+  "level": 1,
+  "expToNextLevel": 100,
+  "expPerTask": 25
+}

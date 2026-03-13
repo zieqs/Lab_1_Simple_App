@@ -6,6 +6,10 @@
             "name": "Run NoteApp",
             "request": "launch",
             "mainClass": "NoteApp",
+            "classPaths": [
+                "bin",
+                "lib/gson-2.10.1.jar"
+            ],
             "vmArgs": "--module-path lib --add-modules javafx.controls,javafx.fxml -Djava.library.path=lib"
         },
         {
@@ -13,6 +17,10 @@
             "name": "Run HelloJavaFX",
             "request": "launch",
             "mainClass": "HelloJavaFX",
+            "classPaths": [
+                "bin",
+                "lib/gson-2.10.1.jar"
+            ],
             "vmArgs": "--module-path lib --add-modules javafx.controls -Djava.library.path=lib"
         }
     ]

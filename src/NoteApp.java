@@ -17,6 +17,7 @@ public class NoteApp extends Application {
     private List<Category> categories = new ArrayList<>();
     private Category selectedCategory;
     private ExpSystem expSystem = new ExpSystem();
+    private final Storage storage = new Storage();
 
     // UI components that need refreshing
     private VBox categoryListContainer;
@@ -30,10 +31,7 @@ public class NoteApp extends Application {
 
     @Override
     public void start(Stage primaryStage) {
-        // Default category
-        Category dailyTask = new Category("Daily Task");
-        categories.add(dailyTask);
-        selectedCategory = dailyTask;
+        loadStateOrInit();
 
         root = new BorderPane();
 
@@ -53,6 +51,27 @@ public class NoteApp extends Application {
         primaryStage.setTitle("Note Taking App");
         primaryStage.setScene(scene);
         primaryStage.show();
+    }
+
+    private void loadStateOrInit() {
+        Optional<AppState> loaded = storage.load();
+        if (loaded.isPresent()) {
+            AppState state = loaded.get();
+            categories = new ArrayList<>(state.getCategories());
+            if (categories.isEmpty()) {
+                Category fallback = new Category("Daily Task");
+                categories.add(fallback);
+            }
+            selectedCategory = categories.stream()
+                    .filter(c -> c.getName().equals(state.getSelectedCategoryName()))
+                    .findFirst()
+                    .orElse(categories.get(0));
+            expSystem.loadState(state.getExp(), state.getLevel(), state.getExpToNextLevel(), state.getExpPerTask());
+        } else {
+            Category dailyTask = new Category("Daily Task");
+            categories.add(dailyTask);
+            selectedCategory = dailyTask;
+        }
     }
 
     // ==================== TOP BAR ====================
@@ -190,6 +209,7 @@ public class NoteApp extends Application {
                     selectedCategory = categories.isEmpty() ? null : categories.get(0);
                     refreshCategoryList();
                     refreshTaskList();
+                    persist();
                 }
             } else {
                 Alert alert = new Alert(Alert.AlertType.WARNING);
@@ -260,6 +280,7 @@ public class NoteApp extends Application {
                 selectedCategory = cat;
                 refreshCategoryList();
                 refreshTaskList();
+                persist();
             });
 
             // Right-click context menu (Rename / Delete)
@@ -282,6 +303,7 @@ public class NoteApp extends Application {
                     }
                     refreshCategoryList();
                     refreshTaskList();
+                    persist();
                 }
             });
 
@@ -331,6 +353,7 @@ public class NoteApp extends Application {
                 }
                 refreshExpDisplay();
                 refreshTaskList();
+                persist();
             });
 
             // Priority label
@@ -362,6 +385,7 @@ public class NoteApp extends Application {
                 selectedCategory.removeTask(task);
                 refreshTaskList();
                 refreshCategoryList();
+                persist();
             });
 
             row.getChildren().addAll(checkBox, priorityLabel, nameLabel, editBtn, deleteBtn);
@@ -390,6 +414,7 @@ public class NoteApp extends Application {
                 selectedCategory = cat;
                 refreshCategoryList();
                 refreshTaskList();
+                persist();
             }
         });
     }
@@ -404,6 +429,7 @@ public class NoteApp extends Application {
             if (!name.trim().isEmpty()) {
                 cat.setName(name.trim());
                 refreshCategoryList();
+                persist();
             }
         });
     }
@@ -456,6 +482,7 @@ public class NoteApp extends Application {
             selectedCategory.addTask(task);
             refreshTaskList();
             refreshCategoryList();
+            persist();
         });
     }
 
@@ -490,6 +517,7 @@ public class NoteApp extends Application {
             task.setName(nameField.getText().trim());
             task.setPriority(priorityBox.getSelectionModel().getSelectedIndex() + 1);
             refreshTaskList();
+            persist();
         }
     }
 
@@ -503,5 +531,20 @@ public class NoteApp extends Application {
 
     public static void main(String[] args) {
         launch(args);
+    }
+
+    private void persist() {
+        if (selectedCategory == null && !categories.isEmpty()) {
+            selectedCategory = categories.get(0);
+        }
+        String selectedName = selectedCategory != null ? selectedCategory.getName() : null;
+        AppState state = new AppState(
+                categories,
+                selectedName,
+                expSystem.getExp(),
+                expSystem.getLevel(),
+                expSystem.getExpToNextLevel(),
+                expSystem.getExpPerTask());
+        storage.save(state);
     }
 }
