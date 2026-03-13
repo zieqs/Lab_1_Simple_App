@@ -1,0 +1,19 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "java",
+            "name": "Run NoteApp",
+            "request": "launch",
+            "mainClass": "NoteApp",
+            "vmArgs": "--module-path lib --add-modules javafx.controls,javafx.fxml -Djava.library.path=lib"
+        },
+        {
+            "type": "java",
+            "name": "Run HelloJavaFX",
+            "request": "launch",
+            "mainClass": "HelloJavaFX",
+            "vmArgs": "--module-path lib --add-modules javafx.controls -Djava.library.path=lib"
+        }
+    ]
+}
