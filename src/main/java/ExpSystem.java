@@ -1,3 +1,4 @@
+import java.time.LocalDate;
 import java.util.Random;
 
 public class ExpSystem {
@@ -5,6 +6,10 @@ public class ExpSystem {
     private int level;
     private int expToNextLevel;
     private int expPerTask;
+    private int currentStreak;
+    private int longestStreak;
+    private LocalDate lastCompletedDate;
+    private int lastExpGain;
 
     private static final String[] QUOTES = {
         "The only way to do great work is to love what you do. - Steve Jobs",
@@ -24,25 +29,84 @@ public class ExpSystem {
         this.level = 1;
         this.expToNextLevel = 100;
         this.expPerTask = 25;
+        this.currentStreak = 0;
+        this.longestStreak = 0;
+        this.lastCompletedDate = null;
+        this.lastExpGain = 0;
     }
 
     public boolean addExp(int amount) {
-        exp += amount;
-        if (exp >= expToNextLevel) {
+        exp += Math.max(0, amount);
+        boolean leveledUp = false;
+        while (exp >= expToNextLevel) {
             level++;
             exp -= expToNextLevel;
-            expToNextLevel = (int) (expToNextLevel * 1.5);
-            return true;
+            expToNextLevel = calculateNextLevelThreshold(expToNextLevel, level);
+            leveledUp = true;
         }
-        return false;
+        return leveledUp;
     }
 
     public boolean completeTask() {
-        return addExp(expPerTask);
+        return completeTask(1);
+    }
+
+    public boolean completeTask(int priority) {
+        updateStreak(LocalDate.now());
+        int gainedExp = getExpGainForPriority(priority);
+        lastExpGain = gainedExp;
+        return addExp(gainedExp);
     }
 
     public void uncompleteTask() {
-        exp = Math.max(0, exp - expPerTask);
+        uncompleteTask(1);
+    }
+
+    public void uncompleteTask(int priority) {
+        int refundedExp = Math.max(expPerTask, getExpGainForPriority(priority) - getStreakBonus());
+        exp = Math.max(0, exp - refundedExp);
+        lastExpGain = -refundedExp;
+    }
+
+    private int calculateNextLevelThreshold(int currentThreshold, int newLevel) {
+        int scaled = (int) Math.round(currentThreshold * 1.25);
+        int flatBonus = 10 + (newLevel * 2);
+        return Math.max(100, scaled + flatBonus);
+    }
+
+    private void updateStreak(LocalDate completionDate) {
+        if (lastCompletedDate == null) {
+            currentStreak = 1;
+        } else if (completionDate.equals(lastCompletedDate)) {
+            // Keep streak unchanged for multiple same-day completions.
+        } else if (completionDate.equals(lastCompletedDate.plusDays(1))) {
+            currentStreak++;
+        } else {
+            currentStreak = 1;
+        }
+        if (currentStreak > longestStreak) {
+            longestStreak = currentStreak;
+        }
+        lastCompletedDate = completionDate;
+    }
+
+    private int getPriorityBonus(int priority) {
+        int normalized = Math.max(1, Math.min(3, priority));
+        if (normalized == 1) {
+            return 0;
+        }
+        if (normalized == 2) {
+            return 8;
+        }
+        return 16;
+    }
+
+    public int getStreakBonus() {
+        return Math.min(20, Math.max(0, currentStreak - 1) * 2);
+    }
+
+    public int getExpGainForPriority(int priority) {
+        return expPerTask + getPriorityBonus(priority) + getStreakBonus();
     }
 
     public int getExp() { return exp; }
@@ -56,6 +120,17 @@ public class ExpSystem {
 
     public int getExpPerTask() { return expPerTask; }
     public void setExpPerTask(int expPerTask) { this.expPerTask = Math.max(1, expPerTask); }
+
+    public int getCurrentStreak() { return currentStreak; }
+    public void setCurrentStreak(int currentStreak) { this.currentStreak = Math.max(0, currentStreak); }
+
+    public int getLongestStreak() { return longestStreak; }
+    public void setLongestStreak(int longestStreak) { this.longestStreak = Math.max(0, longestStreak); }
+
+    public LocalDate getLastCompletedDate() { return lastCompletedDate; }
+    public void setLastCompletedDate(LocalDate lastCompletedDate) { this.lastCompletedDate = lastCompletedDate; }
+
+    public int getLastExpGain() { return lastExpGain; }
 
     public String getRandomQuote() {
         return QUOTES[new Random().nextInt(QUOTES.length)];

@@ -1,4 +1,6 @@
 import javafx.application.Application;
+import javafx.animation.KeyFrame;
+import javafx.animation.Timeline;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Scene;
@@ -7,7 +9,12 @@ import javafx.scene.layout.*;
 import javafx.scene.text.Font;
 import javafx.scene.text.FontWeight;
 import javafx.stage.Stage;
+import javafx.util.Duration;
 
+import java.time.LocalDate;
+import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -27,6 +34,12 @@ public class NoteApp extends Application {
     private VBox sidebar;
     private BorderPane root;
     private boolean sidebarVisible = true;
+    private TextField searchField;
+    private ComboBox<String> statusFilterBox;
+    private ComboBox<String> priorityFilterBox;
+    private Label analyticsLabel;
+    private Timeline reminderTimeline;
+    private LocalDate lastAutoReminderDate;
 
     @Override
     public void start(Stage primaryStage) {
@@ -44,7 +57,8 @@ public class NoteApp extends Application {
             dailyTask.setId(id);
             categories.add(dailyTask);
         }
-        selectedCategory = categories.get(0);
+        selectedCategory = categories.isEmpty() ? null : categories.get(0);
+        lastAutoReminderDate = null;
 
         root = new BorderPane();
 
@@ -66,6 +80,10 @@ public class NoteApp extends Application {
         primaryStage.setTitle("Note Taking App");
         primaryStage.setScene(scene);
         primaryStage.show();
+
+        showDueTaskReminder();
+        startReminderScheduler();
+        primaryStage.setOnCloseRequest(e -> stopReminderScheduler());
     }
 
     // ==================== TOP BAR ====================
@@ -209,10 +227,38 @@ public class NoteApp extends Application {
             }
         });
 
-        mainMenu.getItems().addAll(renameCategoryItem, deleteCategoryItem);
+        MenuItem reportsItem = new MenuItem("View Reports");
+        reportsItem.setOnAction(e -> showReportsDialog());
+
+        mainMenu.getItems().addAll(renameCategoryItem, deleteCategoryItem, new SeparatorMenuItem(), reportsItem);
         menuBtn.setOnAction(e -> mainMenu.show(menuBtn, javafx.geometry.Side.TOP, 0, 0));
 
         header.getChildren().addAll(headerLabel, headerSpacer, menuBtn);
+
+        HBox filterBar = new HBox(10);
+        filterBar.setAlignment(Pos.CENTER_LEFT);
+        filterBar.setPadding(new Insets(0, 20, 10, 20));
+
+        searchField = new TextField();
+        searchField.setPromptText("Search tasks...");
+        searchField.setPrefWidth(240);
+        searchField.textProperty().addListener((obs, oldVal, newVal) -> refreshTaskList());
+
+        statusFilterBox = new ComboBox<>();
+        statusFilterBox.getItems().addAll("All", "Active", "Completed");
+        statusFilterBox.setValue("All");
+        statusFilterBox.setOnAction(e -> refreshTaskList());
+
+        priorityFilterBox = new ComboBox<>();
+        priorityFilterBox.getItems().addAll("All Priorities", "Low (!)", "Medium (!!)", "High (!!!)");
+        priorityFilterBox.setValue("All Priorities");
+        priorityFilterBox.setOnAction(e -> refreshTaskList());
+
+        filterBar.getChildren().addAll(searchField, statusFilterBox, priorityFilterBox);
+
+        analyticsLabel = new Label();
+        analyticsLabel.setStyle("-fx-text-fill: #7f8c8d; -fx-font-size: 12;");
+        analyticsLabel.setPadding(new Insets(0, 20, 8, 20));
 
         taskListContainer = new VBox(5);
         taskListContainer.setPadding(new Insets(5, 20, 10, 20));
@@ -236,7 +282,7 @@ public class NoteApp extends Application {
 
         bottomBar.getChildren().addAll(spacer, addTaskBtn);
 
-        center.getChildren().addAll(header, scrollPane, bottomBar);
+        center.getChildren().addAll(header, filterBar, analyticsLabel, scrollPane, bottomBar);
         refreshTaskList();
         return center;
     }
@@ -306,17 +352,28 @@ public class NoteApp extends Application {
             Label emptyLabel = new Label("No category selected. Create one first!");
             emptyLabel.setStyle("-fx-text-fill: #95a5a6; -fx-font-size: 14;");
             taskListContainer.getChildren().add(emptyLabel);
+            if (analyticsLabel != null) {
+                analyticsLabel.setText("Analytics: no category selected");
+            }
             return;
         }
 
-        if (selectedCategory.getTasks().isEmpty()) {
+        updateAnalytics(selectedCategory.getTasks());
+
+        List<Task> visibleTasks = getFilteredTasks(selectedCategory.getTasks());
+
+        if (visibleTasks.isEmpty()) {
             Label emptyLabel = new Label("No tasks yet. Click + to add one!");
             emptyLabel.setStyle("-fx-text-fill: #95a5a6; -fx-font-size: 14;");
+            if (!selectedCategory.getTasks().isEmpty()) {
+                emptyLabel.setText("No tasks match your current search/filter.");
+            }
             taskListContainer.getChildren().add(emptyLabel);
             return;
         }
 
-        for (Task task : selectedCategory.getTasks()) {
+        DateTimeFormatter dueDateFormatter = DateTimeFormatter.ofPattern("dd MMM yyyy");
+        for (Task task : visibleTasks) {
             HBox row = new HBox(10);
             row.setAlignment(Pos.CENTER_LEFT);
             row.setPadding(new Insets(10, 15, 10, 15));
@@ -329,13 +386,15 @@ public class NoteApp extends Application {
                 task.setCompleted(checkBox.isSelected());
                 db.updateTask(task.getId(), task.getName(), task.getPriority(), task.isCompleted());
                 if (checkBox.isSelected()) {
-                    boolean leveledUp = expSystem.completeTask();
+                    db.recordTaskCompleted(LocalDate.now());
+                    boolean leveledUp = expSystem.completeTask(task.getPriority());
                     db.saveExpSystem(expSystem);
                     if (leveledUp) {
                         showLevelUpDialog();
                     }
                 } else {
-                    expSystem.uncompleteTask();
+                    db.recordTaskUncompleted(LocalDate.now());
+                    expSystem.uncompleteTask(task.getPriority());
                     db.saveExpSystem(expSystem);
                 }
                 refreshExpDisplay();
@@ -355,6 +414,20 @@ public class NoteApp extends Application {
                     : "-fx-text-fill: #2c3e50; -fx-font-size: 14;");
             HBox.setHgrow(nameLabel, Priority.ALWAYS);
 
+            Label dueDateLabel = new Label();
+            dueDateLabel.setMinWidth(110);
+            if (task.hasDueDate()) {
+                dueDateLabel.setText("Due " + task.getDueDate().format(dueDateFormatter));
+                if (task.isOverdue()) {
+                    dueDateLabel.setStyle("-fx-text-fill: #c0392b; -fx-font-weight: bold; -fx-font-size: 11;");
+                } else {
+                    dueDateLabel.setStyle("-fx-text-fill: #7f8c8d; -fx-font-size: 11;");
+                }
+            } else {
+                dueDateLabel.setText("No due date");
+                dueDateLabel.setStyle("-fx-text-fill: #95a5a6; -fx-font-size: 11;");
+            }
+
             Button editBtn = new Button("edit");
             editBtn.setStyle(
                     "-fx-background-color: transparent; -fx-text-fill: #3498db; -fx-border-color: #3498db; -fx-border-radius: 3; -fx-font-size: 11; -fx-cursor: hand;");
@@ -370,14 +443,55 @@ public class NoteApp extends Application {
                 refreshCategoryList();
             });
 
-            row.getChildren().addAll(checkBox, priorityLabel, nameLabel, editBtn, deleteBtn);
+            row.getChildren().addAll(checkBox, priorityLabel, nameLabel, dueDateLabel, editBtn, deleteBtn);
             taskListContainer.getChildren().add(row);
+        }
+    }
+
+    private List<Task> getFilteredTasks(List<Task> tasks) {
+        List<Task> filtered = new ArrayList<>();
+        String searchText = searchField == null ? "" : searchField.getText().trim().toLowerCase();
+        String statusFilter = statusFilterBox == null ? "All" : statusFilterBox.getValue();
+        String priorityFilter = priorityFilterBox == null ? "All Priorities" : priorityFilterBox.getValue();
+
+        for (Task task : tasks) {
+            boolean matchesSearch = searchText.isEmpty() || task.getName().toLowerCase().contains(searchText);
+            boolean matchesStatus = "All".equals(statusFilter)
+                    || ("Active".equals(statusFilter) && !task.isCompleted())
+                    || ("Completed".equals(statusFilter) && task.isCompleted());
+            boolean matchesPriority = "All Priorities".equals(priorityFilter)
+                    || ("Low (!)".equals(priorityFilter) && task.getPriority() == 1)
+                    || ("Medium (!!)".equals(priorityFilter) && task.getPriority() == 2)
+                    || ("High (!!!)".equals(priorityFilter) && task.getPriority() == 3);
+
+            if (matchesSearch && matchesStatus && matchesPriority) {
+                filtered.add(task);
+            }
+        }
+        return filtered;
+    }
+
+    private void updateAnalytics(List<Task> tasks) {
+        int total = tasks.size();
+        int completed = 0;
+        int overdue = 0;
+        for (Task task : tasks) {
+            if (task.isCompleted()) {
+                completed++;
+            }
+            if (task.isOverdue()) {
+                overdue++;
+            }
+        }
+        if (analyticsLabel != null) {
+            analyticsLabel.setText("Analytics: total " + total + " | completed " + completed + " | overdue " + overdue);
         }
     }
 
     private void refreshExpDisplay() {
         levelLabel.setText("Level: " + expSystem.getLevel());
-        expLabel.setText("EXP: " + expSystem.getExp() + " / " + expSystem.getExpToNextLevel());
+        expLabel.setText("EXP: " + expSystem.getExp() + " / " + expSystem.getExpToNextLevel()
+                + " | Streak: " + expSystem.getCurrentStreak());
         expBar.setProgress((double) expSystem.getExp() / expSystem.getExpToNextLevel());
     }
 
@@ -445,26 +559,34 @@ public class NoteApp extends Application {
         priorityBox.getItems().addAll("! (Low)", "!! (Medium)", "!!! (High)");
         priorityBox.setValue("! (Low)");
 
+        DatePicker dueDatePicker = new DatePicker();
+        dueDatePicker.setPromptText("Optional");
+
         grid.add(new Label("Name:"), 0, 0);
         grid.add(nameField, 1, 0);
         grid.add(new Label("Priority:"), 0, 1);
         grid.add(priorityBox, 1, 1);
+        grid.add(new Label("Due Date:"), 0, 2);
+        grid.add(dueDatePicker, 1, 2);
 
         dialog.getDialogPane().setContent(grid);
 
         dialog.setResultConverter(dialogButton -> {
             if (dialogButton == createButton && !nameField.getText().trim().isEmpty()) {
                 int priority = priorityBox.getSelectionModel().getSelectedIndex() + 1;
-                return new Task(nameField.getText().trim(), priority);
+                Task createdTask = new Task(nameField.getText().trim(), priority);
+                createdTask.setDueDate(dueDatePicker.getValue());
+                return createdTask;
             }
             return null;
         });
 
         Optional<Task> result = dialog.showAndWait();
         result.ifPresent(task -> {
-            int id = db.insertTask(selectedCategory.getId(), task.getName(), task.getPriority());
+            int id = db.insertTask(selectedCategory.getId(), task.getName(), task.getPriority(), task.getDueDate());
             task.setId(id);
             selectedCategory.addTask(task);
+            db.recordTaskCreated(LocalDate.now());
             refreshTaskList();
             refreshCategoryList();
         });
@@ -489,10 +611,15 @@ public class NoteApp extends Application {
         priorityBox.getItems().addAll("! (Low)", "!! (Medium)", "!!! (High)");
         priorityBox.getSelectionModel().select(task.getPriority() - 1);
 
+        DatePicker dueDatePicker = new DatePicker(task.getDueDate());
+        dueDatePicker.setPromptText("Optional");
+
         grid.add(new Label("Name:"), 0, 0);
         grid.add(nameField, 1, 0);
         grid.add(new Label("Priority:"), 0, 1);
         grid.add(priorityBox, 1, 1);
+        grid.add(new Label("Due Date:"), 0, 2);
+        grid.add(dueDatePicker, 1, 2);
 
         dialog.getDialogPane().setContent(grid);
 
@@ -500,7 +627,8 @@ public class NoteApp extends Application {
         if (result.isPresent() && result.get() == saveButton && !nameField.getText().trim().isEmpty()) {
             task.setName(nameField.getText().trim());
             task.setPriority(priorityBox.getSelectionModel().getSelectedIndex() + 1);
-            db.updateTask(task.getId(), task.getName(), task.getPriority(), task.isCompleted());
+            task.setDueDate(dueDatePicker.getValue());
+            db.updateTask(task.getId(), task.getName(), task.getPriority(), task.isCompleted(), task.getDueDate());
             refreshTaskList();
         }
     }
@@ -509,8 +637,92 @@ public class NoteApp extends Application {
         Alert alert = new Alert(Alert.AlertType.INFORMATION);
         alert.setTitle("Level Up!");
         alert.setHeaderText("Congratulations! You reached Level " + expSystem.getLevel() + "!");
-        alert.setContentText(expSystem.getRandomQuote());
+        alert.setContentText("You gained +" + expSystem.getLastExpGain() + " EXP\n"
+                + "Current streak: " + expSystem.getCurrentStreak() + " day(s)\n\n"
+                + expSystem.getRandomQuote());
         alert.showAndWait();
+    }
+
+    private void startReminderScheduler() {
+        reminderTimeline = new Timeline(new KeyFrame(Duration.seconds(30), event -> checkScheduledReminder()));
+        reminderTimeline.setCycleCount(Timeline.INDEFINITE);
+        reminderTimeline.play();
+    }
+
+    private void stopReminderScheduler() {
+        if (reminderTimeline != null) {
+            reminderTimeline.stop();
+        }
+    }
+
+    private void checkScheduledReminder() {
+        LocalTime now = LocalTime.now();
+        LocalDate today = LocalDate.now();
+
+        LocalTime configured = LocalTime.of(9, 0);
+
+        boolean timeReached = !now.withSecond(0).withNano(0).isBefore(configured);
+        boolean alreadyShownToday = today.equals(lastAutoReminderDate);
+
+        if (timeReached && !alreadyShownToday) {
+            lastAutoReminderDate = today;
+            showDueTaskReminder();
+        }
+    }
+
+    private void showDueTaskReminder() {
+        List<String> overdueTasks = new ArrayList<>();
+        List<String> dueTodayTasks = new ArrayList<>();
+        LocalDate today = LocalDate.now();
+
+        for (Category category : categories) {
+            for (Task task : category.getTasks()) {
+                if (task.isCompleted() || !task.hasDueDate()) {
+                    continue;
+                }
+                if (task.getDueDate().isBefore(today)) {
+                    overdueTasks.add(task.getName() + " (" + category.getName() + ")");
+                } else if (task.getDueDate().isEqual(today)) {
+                    dueTodayTasks.add(task.getName() + " (" + category.getName() + ")");
+                }
+            }
+        }
+
+        if (overdueTasks.isEmpty() && dueTodayTasks.isEmpty()) {
+            return;
+        }
+
+        Alert alert = new Alert(Alert.AlertType.INFORMATION);
+        alert.setTitle("Task Reminders");
+        alert.setHeaderText("You have upcoming task deadlines");
+
+        StringBuilder content = new StringBuilder();
+        if (!overdueTasks.isEmpty()) {
+            content.append("Overdue tasks (" + overdueTasks.size() + "):\n");
+            appendLimitedItems(content, overdueTasks, 5);
+            content.append("\n");
+        }
+        if (!dueTodayTasks.isEmpty()) {
+            content.append("Due today (" + dueTodayTasks.size() + "):\n");
+            appendLimitedItems(content, dueTodayTasks, 5);
+        }
+
+        alert.setContentText(content.toString());
+        alert.showAndWait();
+    }
+
+    private void appendLimitedItems(StringBuilder content, List<String> items, int maxItems) {
+        int shown = Math.min(items.size(), maxItems);
+        for (int i = 0; i < shown; i++) {
+            content.append("- ").append(items.get(i)).append("\n");
+        }
+        if (items.size() > maxItems) {
+            content.append("- ... and ").append(items.size() - maxItems).append(" more\n");
+        }
+    }
+
+    private void showReportsDialog() {
+        ReportDashboard.show(categories, expSystem, db);
     }
 
     public static void main(String[] args) {
