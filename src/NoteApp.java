@@ -8,15 +8,15 @@ import javafx.scene.text.Font;
 import javafx.scene.text.FontWeight;
 import javafx.stage.Stage;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
 public class NoteApp extends Application {
 
-    private List<Category> categories = new ArrayList<>();
+    private DatabaseHelper db;
+    private List<Category> categories;
     private Category selectedCategory;
-    private ExpSystem expSystem = new ExpSystem();
+    private ExpSystem expSystem;
 
     // UI components that need refreshing
     private VBox categoryListContainer;
@@ -30,10 +30,21 @@ public class NoteApp extends Application {
 
     @Override
     public void start(Stage primaryStage) {
-        // Default category
-        Category dailyTask = new Category("Daily Task");
-        categories.add(dailyTask);
-        selectedCategory = dailyTask;
+        // Initialize database
+        db = new DatabaseHelper();
+
+        // Load data from database
+        categories = db.getAllCategories();
+        expSystem = db.loadExpSystem();
+
+        // Create default category if database is empty
+        if (categories.isEmpty()) {
+            Category dailyTask = new Category("Daily Task");
+            int id = db.insertCategory(dailyTask.getName());
+            dailyTask.setId(id);
+            categories.add(dailyTask);
+        }
+        selectedCategory = categories.get(0);
 
         root = new BorderPane();
 
@@ -48,6 +59,8 @@ public class NoteApp extends Application {
         // ===== TOP BAR (EXP) =====
         HBox topBar = buildTopBar();
         root.setTop(topBar);
+
+        refreshExpDisplay();
 
         Scene scene = new Scene(root, 850, 600);
         primaryStage.setTitle("Note Taking App");
@@ -103,13 +116,11 @@ public class NoteApp extends Application {
         sidebar.setPrefWidth(200);
         sidebar.setStyle("-fx-background-color: #34495e;");
 
-        // Home label
         Label homeLabel = new Label("Home");
         homeLabel.setFont(Font.font("System", FontWeight.BOLD, 18));
         homeLabel.setStyle("-fx-text-fill: white;");
         homeLabel.setPadding(new Insets(15, 15, 5, 15));
 
-        // Files header with + button
         HBox filesHeader = new HBox();
         filesHeader.setAlignment(Pos.CENTER_LEFT);
         filesHeader.setPadding(new Insets(10, 15, 5, 15));
@@ -128,7 +139,6 @@ public class NoteApp extends Application {
 
         filesHeader.getChildren().addAll(filesLabel, spacer, addCategoryBtn);
 
-        // Category list
         categoryListContainer = new VBox(2);
         categoryListContainer.setPadding(new Insets(5, 10, 10, 10));
 
@@ -148,7 +158,6 @@ public class NoteApp extends Application {
         VBox center = new VBox();
         center.setStyle("-fx-background-color: #ecf0f1;");
 
-        // Task list header
         HBox header = new HBox();
         header.setAlignment(Pos.CENTER_LEFT);
         header.setPadding(new Insets(15, 20, 10, 20));
@@ -186,6 +195,7 @@ public class NoteApp extends Application {
                 confirm.setContentText("All tasks in this category will be lost.");
                 Optional<ButtonType> result = confirm.showAndWait();
                 if (result.isPresent() && result.get() == ButtonType.OK) {
+                    db.deleteCategory(selectedCategory.getId());
                     categories.remove(selectedCategory);
                     selectedCategory = categories.isEmpty() ? null : categories.get(0);
                     refreshCategoryList();
@@ -204,7 +214,6 @@ public class NoteApp extends Application {
 
         header.getChildren().addAll(headerLabel, headerSpacer, menuBtn);
 
-        // Task list
         taskListContainer = new VBox(5);
         taskListContainer.setPadding(new Insets(5, 20, 10, 20));
 
@@ -213,7 +222,6 @@ public class NoteApp extends Application {
         scrollPane.setStyle("-fx-background: #ecf0f1; -fx-background-color: #ecf0f1;");
         VBox.setVgrow(scrollPane, Priority.ALWAYS);
 
-        // Bottom add task bar
         HBox bottomBar = new HBox(10);
         bottomBar.setAlignment(Pos.CENTER_RIGHT);
         bottomBar.setPadding(new Insets(10, 20, 15, 20));
@@ -255,14 +263,12 @@ public class NoteApp extends Application {
 
             row.getChildren().addAll(nameLabel, countLabel);
 
-            // Click to select
             row.setOnMouseClicked(e -> {
                 selectedCategory = cat;
                 refreshCategoryList();
                 refreshTaskList();
             });
 
-            // Right-click context menu (Rename / Delete)
             ContextMenu contextMenu = new ContextMenu();
 
             MenuItem renameItem = new MenuItem("Rename");
@@ -276,6 +282,7 @@ public class NoteApp extends Application {
                 confirm.setContentText("All tasks in this category will be lost.");
                 Optional<ButtonType> result = confirm.showAndWait();
                 if (result.isPresent() && result.get() == ButtonType.OK) {
+                    db.deleteCategory(cat.getId());
                     categories.remove(cat);
                     if (selectedCategory == cat) {
                         selectedCategory = categories.isEmpty() ? null : categories.get(0);
@@ -316,31 +323,31 @@ public class NoteApp extends Application {
             row.setStyle(
                     "-fx-background-color: white; -fx-background-radius: 8; -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.08), 4, 0, 0, 1);");
 
-            // Checkbox
             CheckBox checkBox = new CheckBox();
             checkBox.setSelected(task.isCompleted());
             checkBox.setOnAction(e -> {
                 task.setCompleted(checkBox.isSelected());
+                db.updateTask(task.getId(), task.getName(), task.getPriority(), task.isCompleted());
                 if (checkBox.isSelected()) {
                     boolean leveledUp = expSystem.completeTask();
+                    db.saveExpSystem(expSystem);
                     if (leveledUp) {
                         showLevelUpDialog();
                     }
                 } else {
                     expSystem.uncompleteTask();
+                    db.saveExpSystem(expSystem);
                 }
                 refreshExpDisplay();
                 refreshTaskList();
             });
 
-            // Priority label
             Label priorityLabel = new Label(task.getPriorityLabel());
             String priorityColor = task.getPriority() == 3 ? "#e74c3c"
                     : task.getPriority() == 2 ? "#f39c12" : "#3498db";
             priorityLabel.setStyle("-fx-text-fill: " + priorityColor + "; -fx-font-weight: bold; -fx-font-size: 14;");
             priorityLabel.setMinWidth(30);
 
-            // Task name
             Label nameLabel = new Label(task.getName());
             nameLabel.setMaxWidth(Double.MAX_VALUE);
             nameLabel.setStyle(task.isCompleted()
@@ -348,17 +355,16 @@ public class NoteApp extends Application {
                     : "-fx-text-fill: #2c3e50; -fx-font-size: 14;");
             HBox.setHgrow(nameLabel, Priority.ALWAYS);
 
-            // Edit button
             Button editBtn = new Button("edit");
             editBtn.setStyle(
                     "-fx-background-color: transparent; -fx-text-fill: #3498db; -fx-border-color: #3498db; -fx-border-radius: 3; -fx-font-size: 11; -fx-cursor: hand;");
             editBtn.setOnAction(e -> showEditTaskDialog(task));
 
-            // Delete button
             Button deleteBtn = new Button("delete");
             deleteBtn.setStyle(
                     "-fx-background-color: transparent; -fx-text-fill: #e74c3c; -fx-border-color: #e74c3c; -fx-border-radius: 3; -fx-font-size: 11; -fx-cursor: hand;");
             deleteBtn.setOnAction(e -> {
+                db.deleteTask(task.getId());
                 selectedCategory.removeTask(task);
                 refreshTaskList();
                 refreshCategoryList();
@@ -386,6 +392,8 @@ public class NoteApp extends Application {
         result.ifPresent(name -> {
             if (!name.trim().isEmpty()) {
                 Category cat = new Category(name.trim());
+                int id = db.insertCategory(cat.getName());
+                cat.setId(id);
                 categories.add(cat);
                 selectedCategory = cat;
                 refreshCategoryList();
@@ -403,6 +411,7 @@ public class NoteApp extends Application {
         result.ifPresent(name -> {
             if (!name.trim().isEmpty()) {
                 cat.setName(name.trim());
+                db.updateCategory(cat.getId(), cat.getName());
                 refreshCategoryList();
             }
         });
@@ -453,6 +462,8 @@ public class NoteApp extends Application {
 
         Optional<Task> result = dialog.showAndWait();
         result.ifPresent(task -> {
+            int id = db.insertTask(selectedCategory.getId(), task.getName(), task.getPriority());
+            task.setId(id);
             selectedCategory.addTask(task);
             refreshTaskList();
             refreshCategoryList();
@@ -489,6 +500,7 @@ public class NoteApp extends Application {
         if (result.isPresent() && result.get() == saveButton && !nameField.getText().trim().isEmpty()) {
             task.setName(nameField.getText().trim());
             task.setPriority(priorityBox.getSelectionModel().getSelectedIndex() + 1);
+            db.updateTask(task.getId(), task.getName(), task.getPriority(), task.isCompleted());
             refreshTaskList();
         }
     }
